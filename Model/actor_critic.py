@@ -49,6 +49,9 @@ class HybridActorNetwork(nn.Module):
         # 連続値アクション用の出力層
         if continuous_action_size > 0:
             self.continuous_mean = nn.Linear(hidden_size, continuous_action_size)
+            # action_log_stdは「対数を取った標準偏差」として扱われる学習可能なパラメータ。
+            # この値自体が統計的な標準偏差ではなく、探索の幅を決定するために学習される。
+            # 指数（exp）を取ることで、標準偏差が常に正の値になることを保証する。
             self.action_log_std = nn.Parameter(torch.zeros(continuous_action_size))
 
             nn.init.uniform_(self.continuous_mean.weight, -0.01, 0.01)
@@ -90,7 +93,7 @@ class CriticNetwork(nn.Module):
     def __init__(self, state_size, hidden_size=128):
         super(CriticNetwork, self).__init__()
         
-       # 隠れ層の定義
+        # 隠れ層の定義
         self.hidden_layers = nn.Sequential(
             nn.Linear(state_size, hidden_size),
             nn.ReLU(),
