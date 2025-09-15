@@ -1,98 +1,153 @@
 import argparse
 import os
-from agent.ppo_agent import PPOAgent
-from env.unity_env_wrapper import UnityEnvWrapper
+import torch
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import CheckpointCallback
+from mlagents_envs.environment import UnityEnvironment
+from mlagents_envs.envs.unity_to_gym_wrapper import UnityToGymWrapper
 from config import Config
-from trainer.ppo_trainer import PPOTrainer
-from common.seed_utils import set_seed
 
 def parse_arguments():
     """コマンドライン引数の解析"""
-    parser = argparse.ArgumentParser(description='PPO Training for Unity ML-Agents')
+    parser = argparse.ArgumentParser(description='PPO Training for Unity ML-Agents with stable-baselines3')
     
-    parser.add_argument('--resume_checkpoint', type=str, default=None,
-                       help='学習を再開するためのチェックポイントファイルパス')
-    parser.add_argument('--load_actor', type=str, default=None,
-                       help='推論/転移学習のためにActorの重みのみを読み込む')
-    parser.add_argument('--env_path', type=str, default="../PLLA_Sample/Build/PLLA_Sample", help='Unity環境のパス')
-    parser.add_argument('--max_steps', type=int, default=None, help='最大学習ステップ数')
-    parser.add_argument('--save_interval', type=int, default=None, help='モデル保存間隔')
-    
-    # アクション空間に関する引数を追加
-    parser.add_argument('--use_continuous', action='store_true', help='連続値アクションを使用する')
-    parser.add_argument('--use_discrete', action='store_true', help='離散値アクションを使用する')
-    parser.add_argument('--agent_name', type=str, default="PPO_Agent", help='エージェントの名前')
+    parser.add_argument('--load_model', type=str, default=None,
+                       help='学習を再開するためのモデルファイルパス (.zip)')
+    parser.add_argument('--env_path', type=str, default="../PLLA_Sample/Build/PLLA_Sample",
+                        help='Unity環境のパス')
+    parser.add_argument('--max_steps', type=int, default=30000,
+                        help='最大学習ステップ数')
+    parser.add_argument('--save_interval', type=int, default=10000,
+                        help='モデル保存間隔 (ステップ数)')
+    parser.add_argument('--save_name', type=str, default="ppo_unity_model",
+                        help='保存するモデルのベース名')
+    parser.add_argument('--time_scale', type=int, default=8,
+                        help='Unity環境のタイムスケール')
 
     return parser.parse_args()
 
+def export_to_onnx(model, onnx_path, env):
+    """
+    stable-baselines3モデルのActorをONNX形式でエクスポートする
+    """
+    try:
+        # PPOモデルからポリシー（Actor-Criticネットワーク）を取得
+        policy = model.policy
+        # 評価モードに設定
+        policy.set_training_mode(False)
+
+        # ダミーの入力を作成
+        dummy_input = torch.randn(1, *env.observation_space.shape)
+
+        # ONNXエクスポート
+        torch.onnx.export(
+            policy.actor,
+            dummy_input,
+            onnx_path,
+            opset_version=11,
+            input_names=['observation'],
+            output_names=['action'],
+            dynamic_axes={'observation': {0: 'batch_size'}, 'action': {0: 'batch_size'}}
+        )
+        print(f"✅ Model successfully exported to {onnx_path}")
+    except Exception as e:
+        print(f"✗ Error exporting to ONNX: {e}")
+
+
 def main():
     args = parse_arguments()
-    
-    # --- 単一の設定を定義 ---
-    config = Config()
-    config.agent_name = args.agent_name
 
-    # コマンドライン引数から設定を上書き
-    if args.max_steps:
-        config.max_steps = args.max_steps
-    if args.save_interval:
-        config.save_interval = args.save_interval
+    # --- ログとモデルの保存ディレクトリを作成 ---
+    log_dir = "log/"
+    os.makedirs(log_dir, exist_ok=True)
 
-    # アクション空間の設定
-    # 引数が指定されていない場合は、configのデフォルト値を使用
-    if args.use_continuous or args.use_discrete:
-        config.use_continuous = args.use_continuous
-        config.use_discrete = args.use_discrete
-
-
-    set_seed(config.seed)
-
-    env_wrapper = UnityEnvWrapper(args.env_path, config.time_scale, config.seed)
-
-    # 環境からアクション空間のサイズを取得して設定
-    config.continuous_action_size = env_wrapper.get_continuous_action_size()
-    config.discrete_action_size = env_wrapper.get_discrete_action_size()
-
-    # --- 単一のエージェントを初期化 ---
-    agent = PPOAgent(
-        env_wrapper.get_state_size(),
-        config.continuous_action_size,
-        config.discrete_action_size,
-        config
+    print("--- Initializing Unity Environment ---")
+    # --- Unity環境の初期化 ---
+    # `file_name`にUnity実行ファイルのパスを指定
+    # `seed`で環境の乱数シードを固定
+    # `side_channels`でUnityとPython間の追加の通信チャネルを設定可能
+    unity_env = UnityEnvironment(
+        file_name=args.env_path,
+        seed=1,
+        side_channels=[],
+        no_graphics=False # Trueにするとヘッドレスモード
     )
-    print(f"Initialized agent: '{config.agent_name}' with action space: Continuous({config.use_continuous}), Discrete({config.use_discrete})")
-    # ----------------------------------------
 
-    # モデルの読み込み処理
-    if args.resume_checkpoint:
-        if os.path.exists(args.resume_checkpoint):
-            agent.load_checkpoint(args.resume_checkpoint)
-        else:
-            print(f"✗ Checkpoint not found at: {args.resume_checkpoint}")
-    elif args.load_actor:
-        if os.path.exists(args.load_actor):
-            agent.load_actor_model(args.load_actor)
-        else:
-            print(f"✗ Actor model not found at: {args.load_actor}")
+    # Unity環境をGymnasium互換のインターフェースに変換
+    env = UnityToGymWrapper(unity_env, uint8_visual=False)
+    print("✅ Unity Environment Initialized.")
 
-    # PPOTrainerに単一のエージェントと設定を渡す
-    trainer = PPOTrainer(agent, config)
-    
+    # --- PPOモデルの設定 ---
+    # `stable-baselines3`のPPOモデルを初期化
+    # "MlpPolicy"は、観測とアクションがベクトル形式の場合に使用する標準的なポリシー
+    # `env`で学習対象の環境を指定
+    # `verbose=1`で学習中の情報を表示
+    # その他のハイパーパラメータは`config.py`から読み込むか、ここで直接指定
+    config = Config()
+
+    # コールバックの設定: 一定ステップごとにモデルを保存
+    checkpoint_callback = CheckpointCallback(
+        save_freq=args.save_interval,
+        save_path=log_dir,
+        name_prefix=args.save_name
+    )
+
+    if args.load_model and os.path.exists(args.load_model):
+        print(f"--- Loading pre-trained model from {args.load_model} ---")
+        model = PPO.load(args.load_model, env=env)
+        print("✅ Model loaded.")
+    else:
+        print("--- Initializing new PPO model ---")
+        model = PPO(
+            "MlpPolicy",
+            env,
+            verbose=1,
+            learning_rate=config.lr,
+            n_steps=config.buffer_size,
+            batch_size=config.batch_size,
+            n_epochs=config.ppo_epochs,
+            gamma=config.gamma,
+            gae_lambda=config.gae_lambda,
+            clip_range=config.clip_epsilon,
+            ent_coef=config.entropy_coef,
+            vf_coef=config.value_coef,
+            max_grad_norm=config.max_grad_norm,
+            tensorboard_log=log_dir
+        )
+        print("✅ New model initialized.")
+
     try:
-        print("Starting training...")
-        trainer.train(env_wrapper)
-        print("Training completed!")
+        print("\n--- Starting training ---")
+        # モデルの学習を開始
+        # `total_timesteps`で総学習ステップ数を指定
+        # `callback`で学習中に行う処理（モデルの保存など）を指定
+        model.learn(
+            total_timesteps=args.max_steps,
+            callback=checkpoint_callback
+        )
+        print("✅ Training completed!")
         
     except KeyboardInterrupt:
-        print("\nTraining interrupted by user")
+        print("\nTraining interrupted by user.")
         
     except Exception as e:
-        print(f"Error during training: {e}")
+        print(f"✗ Error during training: {e}")
         import traceback
         traceback.print_exc()
         
     finally:
-        env_wrapper.close()
+        # --- モデルの保存とエクスポート ---
+        final_model_path = os.path.join(log_dir, f"{args.save_name}_final.zip")
+        print(f"--- Saving final model to {final_model_path} ---")
+        model.save(final_model_path)
+
+        onnx_path = os.path.join(log_dir, f"{args.save_name}_final.onnx")
+        print(f"--- Exporting final model to {onnx_path} ---")
+        export_to_onnx(model, onnx_path, env)
+
+        # 環境を閉じる
+        env.close()
+        print("--- Environment closed. ---")
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,5 @@
+stable-baselines3[extra]
+mlagents-envs
+torch
+# gymnasium is a dependency of stable-baselines3, but we list it for clarity
+gymnasium
