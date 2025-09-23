@@ -1,4 +1,5 @@
 import numpy as np
+import pdb
 
 class RunningMeanStd:
     """Welford's online algorithmを利用して移動平均と標準偏差を計算する"""
@@ -12,10 +13,21 @@ class RunningMeanStd:
         self.count = 1e-4  # ゼロ除算を避けるための小さな値
 
     def update(self, x):
-        """新しいデータxを受け取り、統計量を更新する"""
-        batch_mean = np.mean(x, axis=0)
-        batch_var = np.var(x, axis=0)
-        batch_count = x.shape[0]
+        """
+        新しいデータxを受け取り、統計量を更新する
+        Args:
+            x (np.ndarray): 新しいデータ。形状は (N, *shape) または (*shape) である必要がある
+        """
+
+        # 入力xをNumPy配列に変換し、必ず2次元配列（バッチ）として扱う
+        batch_x = np.asarray(x)
+        if batch_x.ndim == 1:
+            # 1次元配列の場合、(1, 6)のような形状の2次元配列に変換する
+            batch_x = batch_x.reshape(1, -1)
+
+        batch_mean = np.mean(batch_x, axis=0)
+        batch_var = np.var(batch_x, axis=0)
+        batch_count = batch_x.shape[0]
         
         delta = batch_mean - self.mean
         tot_count = self.count + batch_count
