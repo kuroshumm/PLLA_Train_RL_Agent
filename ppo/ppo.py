@@ -60,7 +60,7 @@ class PPOAlgorithm(LearningAlgorithmBase):
         現在の状態に基づき、行動を決定する。
         (Source: ppo_agent.py の select_action メソッドを移植)
         """
-        self.network.train()
+        self.network.eval()
 
         with torch.no_grad():
             state_tensor = torch.as_tensor(state, dtype=torch.float32).unsqueeze(0)
@@ -120,8 +120,9 @@ class PPOAlgorithm(LearningAlgorithmBase):
         next_states = batch_tensors['next_states']
 
         # GAE計算前に報酬を正規化
-        self.reward_normalizer.update(rewards)
-        normalized_rewards = self.reward_normalizer.normalize(rewards)
+        #self.reward_normalizer.update(rewards)
+        #normalized_rewards = self.reward_normalizer.normalize(rewards)
+        normalized_rewards = rewards
 
         with torch.no_grad():
             next_values = self.network.get_value(next_states).squeeze()
@@ -138,7 +139,7 @@ class PPOAlgorithm(LearningAlgorithmBase):
         returns = advantages + values
 
         # アドバンテージの値は学習効率化のため正規化する
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        #advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         # --- 3. データセットの準備 ---
         # 必須のTensorをリストに追加
@@ -180,6 +181,11 @@ class PPOAlgorithm(LearningAlgorithmBase):
                     batch_data['discrete_actions'] = batch[tensor_idx]
                     tensor_idx += 1
 
+                # advantageを正規化
+                advantages = batch_data['advantages']
+                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+                batch_data['advantages'] = advantages
+
                 loss = self.loss_calculator.compute(
                     self.network, 
                     batch_data, 
@@ -193,7 +199,7 @@ class PPOAlgorithm(LearningAlgorithmBase):
                 self.optimizer.step()
 
         # スケジューラのステップを更新
-        if self.scheduler is not None:
-            self.scheduler.step()
+        # if self.scheduler is not None:
+        #     self.scheduler.step()
 
         return {"total_loss": loss.item()}

@@ -54,7 +54,7 @@ class EnvironmentSettings(BaseModel):
     env_path: Optional[str] = None
     time_scale: int
     seed: int
-    normalize_observations: bool = True
+    normalize_observations: bool = False
 
 class AlgorithmSettings(BaseModel):
     """アルゴリズム全体に関する設定"""

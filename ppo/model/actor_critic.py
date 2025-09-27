@@ -40,9 +40,11 @@ class HybridActorNetwork(nn.Module):
         # 隠れ層の定義
         self.hidden_layers = nn.Sequential(
             nn.Linear(state_size, hidden_size),
-            nn.ReLU(),
+            # nn.ReLU(),
+            nn.Tanh(),
             nn.Linear(hidden_size, hidden_size),
-            nn.ReLU()
+            #nn.ReLU()
+            nn.Tanh()
         )
         self._initialize_weights()
 

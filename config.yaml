@@ -34,7 +34,7 @@ environment:
   seed: 1
   
   # 観測を正規化するかどうか
-  normalize_observations: true 
+  normalize_observations: false
 
 # ===================================================
 # 学習アルゴリズムの設定 (PPOAlgorithmが利用)

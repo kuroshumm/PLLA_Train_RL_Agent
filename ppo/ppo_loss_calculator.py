@@ -1,3 +1,4 @@
+import pdb
 import torch
 import torch.nn.functional as F
 from typing import Dict
@@ -50,11 +51,12 @@ class PPOLossCalculator:
 
         # Critic loss (Value loss) with clipping
         # 現在の状態価値とリターン（収益）の差を計算
-        value_losses = F.mse_loss(values, batch['returns'], reduction='none')
+        value_losses = F.mse_loss(batch['returns'], values, reduction='none')
         # クリッピングを行うことで、価値関数の過度な更新を防ぐ
-        values_clipped = batch['values'] + (values - batch['values']).clamp(-self.clip_epsilon, self.clip_epsilon)
-        value_losses_clipped = F.mse_loss(values_clipped, batch['returns'], reduction='none')
-        critic_loss = 0.5 * torch.max(value_losses, value_losses_clipped).mean()
+        # values_clipped = batch['values'] + (values - batch['values']).clamp(-self.clip_epsilon, self.clip_epsilon)
+        # value_losses_clipped = F.mse_loss(values_clipped, batch['returns'], reduction='none')
+        #critic_loss = torch.max(value_losses, value_losses_clipped).mean()
+        critic_loss = value_losses.mean()
 
         # Entropy loss
         # エントロピー損失の計算
