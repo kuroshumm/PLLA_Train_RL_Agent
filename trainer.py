@@ -3,7 +3,7 @@ import numpy as np
 from settings.setting import TrainerSettings
 from base.learning_algorithm_base import LearningAlgorithmBase
 from data.buffer import Buffer
-from data.trajectory import Trajectory
+from data.transition_data import TransitionData
 from env.unity_env_wrapper import UnityEnvWrapper
 # from checkpoint_manager import CheckpointManager # 将来的に実装
 
@@ -46,23 +46,22 @@ class Trainer:
                     # --- 変更点: 実際の環境ステップ実行 ---
                     next_state, reward, done = self.env.step(
                         action_info.continuous_action,
-                        action_info.discrete_action
+                        None
                     )
-                    # -----------------------------------
 
-                    # 1-3. Trajectoryオブジェクトを作成し、バッファに保存
-                    trajectory = Trajectory(
-                        state=state,
-                        continuous_action=action_info.continuous_action,
-                        discrete_action=action_info.discrete_action,
-                        reward=reward, 
-                        done=done,
-                        next_state=next_state,
-                        value=action_info.value,
-                        log_prob=action_info.log_prob,
-                        raw_continuous_action=action_info.raw_continuous_action
+                    transition_data = TransitionData(
+                        states=state,
+                        rewards=reward,
+                        dones=done,
+                        next_states=next_state,
+                        values=action_info.value,
+                        log_probs=action_info.log_prob,
+                        raw_continuous_actions=action_info.raw_continuous_action
                     )
-                    self.buffer.store(trajectory)
+
+                    # -----------------------------------
+                    # 1-2. バッファにデータを保存
+                    self.buffer.store(transition_data)
 
                     state = next_state
                     episode_reward += reward

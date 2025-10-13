@@ -2,7 +2,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from typing import List, Dict
 
-from data.trajectory import Trajectory
+from data.buffer import Buffer
 from data.action_info import ActionInfo
 
 # ===================================================
@@ -31,7 +31,7 @@ class LearningAlgorithmBase(ABC):
         pass
 
     @abstractmethod
-    def train(self, trajectories: List[Trajectory]) -> Dict[str, float]:
+    def train(self, buffer: Buffer) -> Dict[str, float]:
         """
         収集された遷移データのリストを用いて、モデルの学習（更新）を行う。
 

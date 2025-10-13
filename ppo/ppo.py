@@ -15,6 +15,8 @@ from .gae_calculator import GAECalculator
 from .ppo_loss_calculator import PPOLossCalculator
 from .model.ppo_network import PPONetwork
 
+from data.transition_data import TrainData, TrainDataset
+
 class PPOAlgorithm(LearningAlgorithmBase):
 
     """
@@ -33,7 +35,6 @@ class PPOAlgorithm(LearningAlgorithmBase):
         self.network = PPONetwork(
             state_size,
             action_space.continuous_action.get("size", 0),
-            action_space.discrete_action.get("size", 0),
             self.settings.model.hidden_size
         )
         self.reward_normalizer = RewardNormalizer()
@@ -65,41 +66,26 @@ class PPOAlgorithm(LearningAlgorithmBase):
         with torch.no_grad():
             state_tensor = torch.as_tensor(state, dtype=torch.float32).unsqueeze(0)
             
-            continuous_dist, discrete_dist = self.network.get_action_distribution(state_tensor)
+            continuous_dist = self.network.get_action_distribution(state_tensor)
             value = self.network.get_value(state_tensor).item()
             
             # --- アクションのサンプリングと情報収集 ---
-            continuous_action_clipped: Optional[np.ndarray] = None
-            raw_continuous_action: Optional[np.ndarray] = None
-            discrete_action: Optional[np.ndarray] = None
-            log_prob = 0
-
             # 連続値アクションの処理
-            if self.settings.action_space.use_continuous and continuous_dist is not None:
-
-                continuous_action_sample = continuous_dist.sample()
-                raw_continuous_action = continuous_action_sample.cpu().numpy()
-                # サンプリングした行動が現在の確率分布においてどの位の確率で選ばれたかを計算（対数確率）
-                log_prob += continuous_dist.log_prob(continuous_action_sample).sum(axis=-1)
-                # サンプリングした連続値アクションをクリッピング
-                action_scale = self.settings.action_space.continuous_action.get("scale", 1.0)
-                action_bias = self.settings.action_space.continuous_action.get("bias", 0.0)
-                continuous_action_clipped = (torch.tanh(continuous_action_sample) * action_scale + action_bias).cpu().numpy()
-
-            # 離散値アクションの処理
-            if self.settings.action_space.use_discrete and discrete_dist is not None:
-
-                discrete_action_sample = discrete_dist.sample()
-                # サンプリングした行動が現在の確率分布においてどの位の確率で選ばれたかを計算（対数確率）
-                log_prob += discrete_dist.log_prob(discrete_action_sample)
-                discrete_action = discrete_action_sample.cpu().numpy()
+            continuous_action_sample = continuous_dist.sample()
+            raw_continuous_action = continuous_action_sample.cpu().numpy().flatten()
+            # サンプリングした行動が現在の確率分布においてどの位の確率で選ばれたかを計算（対数確率）
+            log_prob = continuous_dist.log_prob(continuous_action_sample).sum(axis=-1)
+            # サンプリングした連続値アクションをクリッピング
+            # action_scale = self.settings.action_space.continuous_action.get("scale", 1.0)
+            # action_bias = self.settings.action_space.continuous_action.get("bias", 0.0)
+            # continuous_action_clipped = (torch.tanh(continuous_action_sample) * action_scale + action_bias).cpu().numpy()
+            continuous_action_clipped = torch.clip(continuous_action_sample, -1.0, 1.0).cpu().numpy()
 
         return ActionInfo(
             continuous_action=continuous_action_clipped,
-            discrete_action=discrete_action,
+            raw_continuous_action=raw_continuous_action,
             value=value,
             log_prob=log_prob.item(),
-            raw_continuous_action=raw_continuous_action
         )
 
     def train(self, buffer: Buffer) -> Dict[str, float]:
@@ -114,10 +100,13 @@ class PPOAlgorithm(LearningAlgorithmBase):
             return {}
         
         # データをテンソルに変換
-        values = batch_tensors['values']
-        rewards = batch_tensors['rewards']
-        dones = batch_tensors['dones']
-        next_states = batch_tensors['next_states']
+        states = batch_tensors.states
+        values = batch_tensors.values
+        rewards = batch_tensors.rewards
+        dones = batch_tensors.dones
+        next_states = batch_tensors.next_states
+        old_log_probs = batch_tensors.log_probs
+        raw_continuous_actions = batch_tensors.raw_continuous_actions
 
         # GAE計算前に報酬を正規化
         #self.reward_normalizer.update(rewards)
@@ -143,55 +132,34 @@ class PPOAlgorithm(LearningAlgorithmBase):
 
         # --- 3. データセットの準備 ---
         # 必須のTensorをリストに追加
-        dataset_tensors = [
-            batch_tensors["states"], 
-            batch_tensors["old_log_probs"], 
-            advantages, 
-            returns, 
-            batch_tensors["values"]
-        ]
-
-        # .get()を使い、キーが存在する場合のみリストに追加する
-        if self.settings.action_space.use_continuous:
-            raw_continuous_actions = batch_tensors.get("raw_continuous_actions")
-            if raw_continuous_actions is not None:
-                dataset_tensors.append(raw_continuous_actions)
-
-        if self.settings.action_space.use_discrete:
-            discrete_actions = batch_tensors.get("discrete_actions")
-            if discrete_actions is not None:
-                dataset_tensors.append(discrete_actions)
-
-        dataset = TensorDataset(*dataset_tensors)
-        dataloader = DataLoader(dataset, batch_size=self.settings.hyperparameters.batch_size, shuffle=True)
+        dataset_tensors = TrainDataset(
+            TrainData(
+                states=states,
+                old_log_probs=old_log_probs,
+                advantages=advantages,
+                returns=returns,
+                values=values,
+                actions=raw_continuous_actions,
+            )
+        )
+        dataloader = DataLoader(dataset_tensors, batch_size=self.settings.hyperparameters.batch_size, shuffle=True)
         
         # --- 4. 学習の実行 (ミニバッチ学習) ---
+        loss_list = []
         epochs = self.settings.hyperparameters.ppo.epochs
         for _ in range(epochs):
             for batch in dataloader:
-                # バッチデータを辞書形式に再構成
-                batch_data = {}
-                tensor_idx = 0
-                batch_data['states'], batch_data['old_log_probs'], batch_data['advantages'], batch_data['returns'], batch_data['values'] = batch[tensor_idx:tensor_idx+5]
-                tensor_idx += 5
-                if self.settings.action_space.use_continuous:
-                    batch_data['continuous_actions'] = batch[tensor_idx]
-                    tensor_idx += 1
-                if self.settings.action_space.use_discrete:
-                    batch_data['discrete_actions'] = batch[tensor_idx]
-                    tensor_idx += 1
 
                 # advantageを正規化
-                advantages = batch_data['advantages']
-                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-                batch_data['advantages'] = advantages
+                advantages = (batch.advantages - batch.advantages.mean()) / (batch.advantages.std() + 1e-8)
+                batch_data = batch._replace(advantages=advantages)
 
                 loss = self.loss_calculator.compute(
                     self.network, 
                     batch_data, 
-                    self.settings.action_space.use_continuous,
-                    self.settings.action_space.use_discrete
                 )
+
+                loss_list.append(loss.item())
                 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -199,7 +167,7 @@ class PPOAlgorithm(LearningAlgorithmBase):
                 self.optimizer.step()
 
         # スケジューラのステップを更新
-        # if self.scheduler is not None:
-        #     self.scheduler.step()
+        if self.scheduler is not None:
+            self.scheduler.step()
 
-        return {"total_loss": loss.item()}
+        return {"total_loss": sum(loss_list) / len(loss_list)} if loss_list else {"total_loss": 0}

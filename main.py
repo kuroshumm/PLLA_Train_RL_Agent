@@ -19,12 +19,10 @@ def main():
         
         state_size = env_wrapper.get_state_size()
         continuous_action_size = env_wrapper.get_continuous_action_size()
-        discrete_action_size = env_wrapper.get_discrete_action_size()
         
         config.algorithm.action_space.continuous_action["size"] = continuous_action_size
-        config.algorithm.action_space.discrete_action["size"] = discrete_action_size
 
-        print(f"State Size: {state_size}, Continuous Actions: {continuous_action_size}, Discrete Actions: {discrete_action_size}")
+        print(f"State Size: {state_size}, Continuous Actions: {continuous_action_size}")
 
     except Exception as e:
         print(f"✗ Error during initialization: {e}")
