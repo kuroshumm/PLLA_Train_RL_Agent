@@ -1,7 +1,7 @@
 import sys
 
 from settings.loader import load_config
-from trainer import Trainer
+from trainer.trainer import Trainer
 from ppo.ppo import PPOAlgorithm
 from base.learning_algorithm_base import LearningAlgorithmBase
 from env.unity_env_wrapper import UnityEnvWrapper # インポートを追加

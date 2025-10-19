@@ -1,3 +1,4 @@
+from collections import deque
 import numpy as np
 
 from settings.setting import TrainerSettings
@@ -30,6 +31,8 @@ class Trainer:
             buffer_size_to_train: int):
         
         """学習ループを実行する"""
+        # 最近100エピソードの報酬を保持するためのリスト
+        episode_rewards = deque(maxlen=100)
         total_steps = 0
         episode_count = 0
 
@@ -75,13 +78,15 @@ class Trainer:
                         print("----------------------------------------------------")
 
                     if total_steps % trainer_settings.save_interval == 0:
-                        print(f"Step {total_steps}/{trainer_settings.max_steps} | Episode {episode_count}")
+                        avg_reward = np.mean(episode_rewards) if episode_rewards else 0
+                        print(f"Step {total_steps}/{trainer_settings.max_steps} | Episode {episode_count} | Avg Reward (Last {len(episode_rewards)} episodes): {avg_reward:.2f}")
                         print(f"--- Step {total_steps}: Saving model checkpoint... ---")
 
                     if done or total_steps >= trainer_settings.max_steps:
                         break
                 
                 episode_count += 1
+                episode_rewards.append(episode_reward)
                 #print(f"Episode {episode_count} finished. Reward: {episode_reward:.2f}")
 
         finally:
