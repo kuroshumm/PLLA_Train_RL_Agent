@@ -1,98 +1,124 @@
+import sys
 import argparse
-import os
-from agent.ppo_agent import PPOAgent
+
+from settings.loader import load_config
+from trainer.trainer import Trainer
+from ppo.ppo import PPOAlgorithm
+from base.learning_algorithm_base import LearningAlgorithmBase
 from env.unity_env_wrapper import UnityEnvWrapper
-from config import Config
-from trainer.ppo_trainer import PPOTrainer
 from common.seed_utils import set_seed
+from common.checkpoint_manager import CheckpointFileGenerator
 
 def parse_arguments():
-    """コマンドライン引数の解析"""
-    parser = argparse.ArgumentParser(description='PPO Training for Unity ML-Agents')
-    
-    parser.add_argument('--resume_checkpoint', type=str, default=None,
-                       help='学習を再開するためのチェックポイントファイルパス')
-    parser.add_argument('--load_actor', type=str, default=None,
-                       help='推論/転移学習のためにActorの重みのみを読み込む')
-    parser.add_argument('--env_path', type=str, default="../PLLA_Sample/Build/PLLA_Sample", help='Unity環境のパス')
-    parser.add_argument('--max_steps', type=int, default=None, help='最大学習ステップ数')
-    parser.add_argument('--save_interval', type=int, default=None, help='モデル保存間隔')
-    
-    # アクション空間に関する引数を追加
-    parser.add_argument('--use_continuous', action='store_true', help='連続値アクションを使用する')
-    parser.add_argument('--use_discrete', action='store_true', help='離散値アクションを使用する')
-    parser.add_argument('--agent_name', type=str, default="PPO_Agent", help='エージェントの名前')
-
+    """
+    コマンドライン引数を解析する
+    """
+    parser = argparse.ArgumentParser(description="PLLA Custom RL Agent Trainer")
+    parser.add_argument(
+        "config",
+        nargs="?",
+        default="config.yaml",
+        help="Path to the configuration file (default: config.yaml)"
+    )
+    parser.add_argument(
+        "--resume_from",
+        type=str,
+        default=None,
+        help="Base name of the checkpoint (e.g., 'checkpoint' or 'best_model.pth')"
+    )
+    parser.add_argument(
+        "--resume_step",
+        type=int,
+        default=None,
+        help="Step number of the checkpoint to resume from (e.g., 500)"
+    )
     return parser.parse_args()
 
 def main():
     args = parse_arguments()
-    
-    # --- 単一の設定を定義 ---
-    config = Config()
-    config.agent_name = args.agent_name
 
-    # コマンドライン引数から設定を上書き
-    if args.max_steps:
-        config.max_steps = args.max_steps
-    if args.save_interval:
-        config.save_interval = args.save_interval
-
-    # アクション空間の設定
-    # 引数が指定されていない場合は、configのデフォルト値を使用
-    if args.use_continuous or args.use_discrete:
-        config.use_continuous = args.use_continuous
-        config.use_discrete = args.use_discrete
-
-
-    set_seed(config.seed)
-
-    env_wrapper = UnityEnvWrapper(args.env_path, config.time_scale, config.seed)
-
-    # 環境からアクション空間のサイズを取得して設定
-    config.continuous_action_size = env_wrapper.get_continuous_action_size()
-    config.discrete_action_size = env_wrapper.get_discrete_action_size()
-
-    # --- 単一のエージェントを初期化 ---
-    agent = PPOAgent(
-        env_wrapper.get_state_size(),
-        config.continuous_action_size,
-        config.discrete_action_size,
-        config
-    )
-    print(f"Initialized agent: '{config.agent_name}' with action space: Continuous({config.use_continuous}), Discrete({config.use_discrete})")
-    # ----------------------------------------
-
-    # モデルの読み込み処理
-    if args.resume_checkpoint:
-        if os.path.exists(args.resume_checkpoint):
-            agent.load_checkpoint(args.resume_checkpoint)
-        else:
-            print(f"✗ Checkpoint not found at: {args.resume_checkpoint}")
-    elif args.load_actor:
-        if os.path.exists(args.load_actor):
-            agent.load_actor_model(args.load_actor)
-        else:
-            print(f"✗ Actor model not found at: {args.load_actor}")
-
-    # PPOTrainerに単一のエージェントと設定を渡す
-    trainer = PPOTrainer(agent, config)
-    
+    print("--- 1. Loading Configuration & Initializing Environment ---")
     try:
-        print("Starting training...")
-        trainer.train(env_wrapper)
-        print("Training completed!")
+        config_path = args.config
+        config = load_config(config_path)
+        print(f"Configuration loaded from '{config_path}'.")
         
-    except KeyboardInterrupt:
-        print("\nTraining interrupted by user")
+        env_wrapper = UnityEnvWrapper(config.environment)
         
+        state_size = env_wrapper.get_state_size()
+        continuous_action_size = env_wrapper.get_continuous_action_size()
+        
+        config.algorithm.action_space.continuous_action["size"] = continuous_action_size
+
+        print(f"State Size: {state_size}, Continuous Actions: {continuous_action_size}")
+
     except Exception as e:
-        print(f"Error during training: {e}")
+        print(f"✗ Error during initialization: {e}")
         import traceback
         traceback.print_exc()
+        return
+
+    set_seed(config.environment.seed)
+
+    print("\n--- 2. Initializing Algorithm ---")
+    algorithm: LearningAlgorithmBase
+    
+    if config.algorithm.name == "PPO":
+        algorithm = PPOAlgorithm(state_size, config.algorithm, config.trainer)
+    else:
+        print(f"✗ Error: Unknown algorithm '{config.algorithm.name}'.")
+        env_wrapper.close() # エラー時も環境を閉じる
+        return
+    
+    print(f"✓ Algorithm '{config.algorithm.name}' initialized.")
+
+    print("\n--- 3. Initializing Trainer ---")
+    trainer = Trainer(
+        algorithm=algorithm,
+        env=env_wrapper,
+        buffer_capacity=config.algorithm.hyperparameters.buffer_size * 2
+    )
+    print("✓ Trainer initialized.")
+
+    start_step = 0
+    start_episode = 0
+    # ベース名とエピソード番号が両方指定されている場合のみロードを試みる
+    if args.resume_from:
+        base_name_to_load = args.resume_from
+        step_to_load = args.resume_step
+
+        checkpoint_file_generator = CheckpointFileGenerator()
+        checkpoint_file_path = None
+        if step_to_load is None:
+            checkpoint_file_path = checkpoint_file_generator.generate_best_filename()
+            print(f"\n--- Resuming Training from fixed file: {base_name_to_load} ---")
+        else:
+            checkpoint_file_path = checkpoint_file_generator.generate_filename(base_name_to_load, step_to_load)
+            print(f"\n--- Resuming Training from: {base_name_to_load} (Step {step_to_load}) ---")
+
+        start_step, start_episode = trainer.load_checkpoint(
+            checkpoint_file_path
+        )
         
-    finally:
-        env_wrapper.close()
+        if start_step > 0:
+            print(f"✓ Resuming from Step {start_step}. Starting next episode {start_episode + 1}.")
+        else:
+            print("✗ Failed to load checkpoint. Starting from scratch.")
+
+    print("\n--- 4. Starting Training Run ---")
+    try:
+        trainer.run(
+            trainer_settings=config.trainer,
+            buffer_size_to_train=config.algorithm.hyperparameters.buffer_size
+        )
+    except KeyboardInterrupt:
+        print("\nTraining interrupted by user.")
+    except Exception as e:
+        print(f"\n✗ An error occurred during training: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    print("\n--- Application Finished ---")
 
 if __name__ == "__main__":
     main()

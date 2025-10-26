@@ -1,0 +1,104 @@
+# config.yaml
+# ML-Agents学習用の設定ファイル
+
+# ===================================================
+# 学習全体の管理設定 (Trainerが利用)
+# ===================================================
+trainer:
+  # 学習セッションを識別するための名前
+  agent_name: "default_agent"
+  
+  # 総学習ステップ数
+  max_steps: 30000
+  
+  # 1エピソードあたりの最大ステップ数
+  max_steps_per_episode: 1000
+  
+  # モデルのチェックポイントを保存する間隔（ステップ数）
+  save_interval: 1000
+
+  # 学習状況をログに出力する頻度（ステップ数）
+  summary_freq: 10000
+
+# ===================================================
+# Unity環境の設定 (UnityEnvWrapperが利用)
+# ===================================================
+environment:
+  # Unity実行ファイルのパス (nullの場合はエディタ実行を想定)
+  env_path: "../PLLA_Sample/Build/PLLA_Sample"
+  
+  # Unity環境のシミュレーション速度
+  time_scale: 8
+  
+  # 乱数シード
+  seed: 1
+  
+  # 観測を正規化するかどうか
+  normalize_observations: false
+
+# ===================================================
+# 学習アルゴリズムの設定 (PPOAlgorithmが利用)
+# ===================================================
+algorithm:
+  # 使用するアルゴリズム名 (将来的にSACなどを追加可能)
+  name: "PPO"
+
+  # --- 行動空間 (Action Space) の設定 ---
+  action_space:
+    use_continuous: true
+    use_discrete: false
+    # 連続値アクションの設定
+    continuous_action:
+      # サイズはmain.pyで環境から動的に設定されるため0でOK
+      size: 0 
+      scale: 1.0
+      bias: 0.0
+    # 離散値アクションの設定
+    discrete_action:
+      # サイズはmain.pyで環境から動的に設定されるため0でOK
+      size: 0
+
+  # --- モデル (Neural Network) の設定 ---
+  model:
+    hidden_size: 128
+
+  # --- ハイパーパラメータ ---
+  hyperparameters:
+    # 割引率
+    gamma: 0.99
+    
+    # 学習率 (初期値)
+    learning_rate: 0.0003
+    
+    # 学習率 (最終値)
+    learning_rate_end: 0.0001
+    
+    # 学習率を減衰させる総ステップ数 (max_steps / 2相当)
+    lr_decay_steps: 15000
+    
+    # 経験を収集するバッファのサイズ
+    buffer_size: 1024
+    
+    # 1回の学習で使うバッチサイズ
+    batch_size: 64
+
+    # --- PPO固有のハイパーパラメータ ---
+    # このようにネストさせることで、将来SACなどを追加した際に設定を分離しやすくなります
+    ppo:
+      # GAE (Generalized Advantage Estimation) のラムダ
+      gae_lambda: 0.95
+      
+      # PPOのクリッピングパラメータ (epsilon)
+      clip_epsilon: 0.2
+      
+      # 価値関数の損失係数
+      value_coef: 0.5
+      
+      # エントロピーボーナスの係数
+      entropy_coef: 0.01
+      
+      # 1回の学習あたりに行うエポック数
+      epochs: 5
+      
+      # 勾配クリッピングの最大ノルム
+      max_grad_norm: 0.5
