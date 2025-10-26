@@ -1,6 +1,8 @@
 from collections import deque
 import numpy as np
+from typing import Dict, Tuple
 
+from common.checkpoint_manager import CheckpointData, CheckpointManager, CheckpointFileGenerator
 from settings.setting import TrainerSettings
 from base.learning_algorithm_base import LearningAlgorithmBase
 from data.buffer import Buffer
@@ -22,7 +24,10 @@ class Trainer:
         self.algorithm = algorithm
         self.env = env
         self.buffer = Buffer(capacity=buffer_capacity)
-        # self.checkpoint_manager = CheckpointManager()
+        self.checkpoint_manager = CheckpointManager()
+        self.checkpoint_file_generator = CheckpointFileGenerator()
+
+        self.best_avg_reward = -np.inf
 
         print("Trainer initialized.")
 
@@ -35,6 +40,7 @@ class Trainer:
         episode_rewards = deque(maxlen=100)
         total_steps = 0
         episode_count = 0
+        avg_reward = 0
 
         try:
             while total_steps < trainer_settings.max_steps:
@@ -82,6 +88,34 @@ class Trainer:
                         print(f"Step {total_steps}/{trainer_settings.max_steps} | Episode {episode_count} | Avg Reward (Last {len(episode_rewards)} episodes): {avg_reward:.2f}")
                         print(f"--- Step {total_steps}: Saving model checkpoint... ---")
 
+                        # 1. アルゴリズムからベースとなるCheckpointDataを取得
+                        state_to_save: CheckpointData = self.algorithm.get_checkpoint_state()
+                        
+                        # 2. CheckpointDataにTrainer管理下の情報を追加
+                        state_to_save.set('total_steps', total_steps)
+                        state_to_save.set('episode_count', episode_count) # このエピソード完了時の回数
+                        state_to_save.set('best_avg_reward', self.best_avg_reward) # 現時点のベストも保存
+
+                        # 3. CheckpointManagerを使って保存（ベース名とエピソード数を渡す）
+                        base_filename = "checkpoint" # configなどから取得しても良い
+                        checkpoint_filepath = self.checkpoint_file_generator.generate_filename(base_filename, total_steps)
+                        self.checkpoint_manager.save(state_to_save, checkpoint_filepath)
+
+                    # 現在の平均報酬が、これまでの最高記録を上回った場合
+                    if avg_reward > self.best_avg_reward:
+                        self.best_avg_reward = avg_reward
+                        print(f"\n✨ New Best Average Reward: {avg_reward:.2f} (at Episode {episode_count})! Saving best model... ✨")
+
+                        # 保存する状態（CheckpointData）を取得
+                        best_state: CheckpointData = self.algorithm.get_checkpoint_state()
+                        best_state.set('total_steps', total_steps)
+                        best_state.set('episode_count', episode_count)
+                        best_state.set('best_avg_reward', self.best_avg_reward)
+                        
+                        # CheckpointManagerの新しいメソッドで "best_model.pth" として保存
+                        best_model_filepath = self.checkpoint_file_generator.generate_best_filename()
+                        self.checkpoint_manager.save_best(best_state, best_model_filepath)
+
                     if done or total_steps >= trainer_settings.max_steps:
                         break
                 
@@ -93,3 +127,26 @@ class Trainer:
             self.env.close()
             print("\n--- Training Run Finished ---")
             # -----------------------------------
+
+    def load_checkpoint(self, checkpoint_filepath: str) -> Tuple[int, int]:
+        """指定されたベース名とエピソード番号からチェックポイントを読み込む"""
+        
+        # CheckpointManagerのloadに変更。ベース名とエピソードを渡す
+        checkpoint_data = self.checkpoint_manager.load(checkpoint_filepath)
+        
+        if checkpoint_data:
+            self.algorithm.load_from_checkpoint(checkpoint_data)
+            
+            # CheckpointDataインスタンスの .get() メソッドで値を取得
+            start_step = checkpoint_data.get('total_steps', 0)
+            start_episode = checkpoint_data.get('episode_count', 0)
+
+            # ベストモデルの報酬も読み込んで反映する
+            self.best_avg_reward = checkpoint_data.get('best_avg_reward', -np.inf)
+            if self.best_avg_reward > -np.inf:
+                print(f"Loaded best average reward: {self.best_avg_reward:.2f}")
+            
+            return start_step, start_episode
+        
+        # ロード失敗時は0, 0を返す
+        return 0, 0

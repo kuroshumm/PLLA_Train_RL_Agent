@@ -11,6 +11,7 @@ from data.buffer import Buffer
 from base.learning_algorithm_base import LearningAlgorithmBase
 from settings.setting import AlgorithmSettings, TrainerSettings
 from common.reward_normalizer import RewardNormalizer
+from common.checkpoint_manager import CheckpointData
 from .gae_calculator import GAECalculator
 from .ppo_loss_calculator import PPOLossCalculator
 from .model.ppo_network import PPONetwork
@@ -171,3 +172,22 @@ class PPOAlgorithm(LearningAlgorithmBase):
             self.scheduler.step()
 
         return {"total_loss": sum(loss_list) / len(loss_list)} if loss_list else {"total_loss": 0}
+    
+    def get_checkpoint_state(self) -> CheckpointData:
+        """チェックポイント保存用の状態を CheckpointData インスタンスとして返す"""
+        
+        # CheckpointDataのコンストラクタにキーワード引数として渡す
+        return CheckpointData(
+            network_state_dict=self.network.state_dict(),
+            optimizer_state_dict=self.optimizer.state_dict(),
+            scheduler_state_dict=self.scheduler.state_dict()
+        )
+
+    def load_from_checkpoint(self, checkpoint_data: CheckpointData):
+        """CheckpointData インスタンスから状態を読み込む"""
+        
+        # .data 属性経由で辞書にアクセス
+        self.network.load_state_dict(checkpoint_data.data['network_state_dict'])
+        self.optimizer.load_state_dict(checkpoint_data.data['optimizer_state_dict'])
+        self.scheduler.load_state_dict(checkpoint_data.data['scheduler_state_dict'])
+        print("✓ PPOAlgorithm state has been loaded from checkpoint.")

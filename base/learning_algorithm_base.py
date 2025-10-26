@@ -2,6 +2,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from typing import List, Dict
 
+from common.checkpoint_manager import CheckpointData
 from data.buffer import Buffer
 from data.action_info import ActionInfo
 
@@ -40,5 +41,25 @@ class LearningAlgorithmBase(ABC):
 
         Returns:
             Dict[str, float]: 学習結果の統計情報（損失など）を格納した辞書。
+        """
+        pass
+
+    @abstractmethod
+    def get_checkpoint_state(self) -> CheckpointData:
+        """
+        現在のモデルとオプティマイザの状態をCheckpointDataオブジェクトとして取得する。
+
+        Returns:
+            CheckpointData: モデルとオプティマイザの状態を含むオブジェクト。
+        """
+        pass
+
+    @abstractmethod
+    def load_from_checkpoint(self, checkpoint_data: CheckpointData):
+        """
+        CheckpointData インスタンスから状態を読み込む。
+
+        Args:
+            checkpoint_data (CheckpointData): 読み込むチェックポイントのデータ。
         """
         pass
