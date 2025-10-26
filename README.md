@@ -1,26 +1,33 @@
 # PLLA_Custom_RL_Agent
 <pre>
 .
-├── .gitignore                      
-├── README.md                       
-├── agent
-│   ├── buffer.py                   # 強化学習の経験（状態、行動、報酬など）を一時的に保存するバッファ
-│   └── ppo_agent.py                # PPOアルゴリズムに基づいたエージェントの行動選択や学習処理
+├── .gitignore
+├── README.md
 ├── base
-│   └── base_agent.py               # 強化学習エージェントの基本的な構造（設計図）を定義する基底クラス
+│   └── learning_algorithm_base.py  # 強化学習アルゴリズムの共通インターフェース
+├── classDiagram.md                 # クラス間の関係性を示すUMLクラス図
 ├── common
-│   ├── normalizer.py               # 報酬などのデータの正規化（平均0、分散1に近づける）
-│   └── seed_utils.py               # 実験の再現性を保つために、乱数のシード（種）を固定する関数
-├── config.py                       # 学習率や割引率など、強化学習の各種パラメータを設定
-├── log
-│   └── best_ppo_model.onnx         # 学習済みモデルをONNX形式で保存したファイル
-├── main.py                         # プログラム全体のエントリーポイント（実行開始点）
-├── Model
-│   ├── actor_critic.py             # Actor（行動選択）とCritic（価値評価）のニューラルネットワークモデル
-│   └── ppo_network.py              # ActorとCriticを組み合わせたPPO用のネットワーク全体を構築
-├── Sample
-│   └── plla_sample.py              # Unity環境と連携し、ランダムな行動をとるエージェントのサンプルコード
-├── trainer
-│   └── ppo_trainer.py              # PPOエージェントの学習ループ全体を管理
-└── train.bat                       # Windows環境で学習を開始するためのバッチファイル
+│   ├── checkpoint_manager.py       # 学習の進捗（モデル）を保存・読み込みする管理クラス
+│   ├── reward_normalizer.py        # 報酬を正規化するためのクラス
+│   ├── running_mean_std.py         # データの移動平均と標準偏差を計算
+│   └── seed_utils.py               # 乱数シードを固定し、実験の再現性を保つためのクラス
+├── config.yaml                     # 学習率など、プロジェクト全体の設定を管理するファイル
+├── data
+│   ├── action_info.py              # エージェントが決定した行動の情報を格納するデータクラス
+│   ├── buffer.py                   # 経験（状態、行動、報酬など）を一時的に保存するバッファ
+│   └── transition_data.py          # 1ステップの遷移データ（状態、報酬など）の型を定義
+├── main.py                         # プログラム全体を起動するエントリーポイント
+├── ppo
+│   ├── gae_calculator.py           # PPOのGAEを専門に行うクラス
+│   ├── model
+│   │   ├── actor_critic.py         # Actor（行動）とCritic（価値）のニューラルネットワーク定義
+│   │   └── ppo_network.py          # ActorとCriticを組み合わせたPPOネットワーク全体を構築
+│   ├── ppo.py                      # PPOアルゴリズム本体
+│   └── ppo_loss_calculator.py      # PPOの損失計算（Actor/Critic損失）を専門に行うクラス
+├── settings
+│   ├── loader.py                   # config.yaml を読み込み、Pythonオブジェクトに変換するローダー
+│   └── setting.py                  # config.yaml の構造に対応するPydantic（設定）モデル
+├── train.bat                       # Windows環境で学習（main.py）を開始するための実行ファイル
+└── trainer
+    └── trainer.py                  # 環境とのやり取りや学習ループ全体を管理・実行するクラス
 </pre>
