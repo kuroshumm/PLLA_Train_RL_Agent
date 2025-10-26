@@ -78,34 +78,33 @@ class CheckpointManager:
     def __init__(self):
         pass
 
-    def save(self, data_to_save: CheckpointData, filepath: str):
+    def save(self, checkpoint_data: CheckpointData, filepath: str):
         """
         現在の学習状態（CheckpointDataインスタンス）をファイルに保存する。
         ファイル名にはステップ数が含まれる。
 
         Args:
-            data_to_save (CheckpointData): 保存する状態を含む自作クラスのインスタンス。
-            base_filename (str): "checkpoint" などのベース名。
+            checkpoint_data (CheckpointData): 保存する状態を含む自作クラスのインスタンス。
+            filepath (str): 保存先のファイルパス。
         """
         try:
             # CheckpointDataインスタンスを丸ごと保存
             # torch.saveはpickleを使用するため、自作クラスインスタンスも保存可能
-            torch.save(data_to_save, filepath)
+            torch.save(checkpoint_data, filepath)
             print(f"✓ Checkpoint successfully saved to {filepath}")
         except Exception as e:
             print(f"✗ Failed to save checkpoint to {filepath}. Error: {e}")
 
-    def save_best(self, data_to_save: CheckpointData, filepath: str):
+    def save_best(self, checkpoint_data: CheckpointData, filepath: str):
         """
-        最高のパフォーマンスモデルを別枠で保存する（上書き）。
+        最高のパフォーマンスモデルを別枠で保存する。
 
         Args:
-            data_to_save (CheckpointData): 保存する状態を含むインスタンス。
-            best_filename (str): "best_model.pth" などの固定ファイル名。
+            checkpoint_data (CheckpointData): 保存する状態を含むインスタンス。
+            filepath (str): 保存先のファイルパス。
         """
         try:
-            torch.save(data_to_save, filepath)
-            # ログを分かりやすく変更
+            torch.save(checkpoint_data, filepath)
             print(f"✓ New BEST model saved successfully to {filepath}")
         except Exception as e:
             print(f"✗ Failed to save best model to {filepath}. Error: {e}")

@@ -5,12 +5,36 @@ from settings.loader import load_config
 from trainer.trainer import Trainer
 from ppo.ppo import PPOAlgorithm
 from base.learning_algorithm_base import LearningAlgorithmBase
-from env.unity_env_wrapper import UnityEnvWrapper # インポートを追加
-from common.seed_utils import set_seed # 既存のseed_utils.pyをそのまま利用
+from env.unity_env_wrapper import UnityEnvWrapper
+from common.seed_utils import set_seed
 from common.checkpoint_manager import CheckpointFileGenerator
 
+def parse_arguments():
+    """
+    コマンドライン引数を解析する
+    """
+    parser = argparse.ArgumentParser(description="PLLA Custom RL Agent Trainer")
+    parser.add_argument(
+        "config",
+        nargs="?",
+        default="config.yaml",
+        help="Path to the configuration file (default: config.yaml)"
+    )
+    parser.add_argument(
+        "--resume_from",
+        type=str,
+        default=None,
+        help="Base name of the checkpoint (e.g., 'checkpoint' or 'best_model.pth')"
+    )
+    parser.add_argument(
+        "--resume_step",
+        type=int,
+        default=None,
+        help="Step number of the checkpoint to resume from (e.g., 500)"
+    )
+    return parser.parse_args()
+
 def main():
-    """アプリケーションのエントリーポイント"""
     args = parse_arguments()
 
     print("--- 1. Loading Configuration & Initializing Environment ---")
@@ -95,30 +119,6 @@ def main():
         traceback.print_exc()
     
     print("\n--- Application Finished ---")
-
-def parse_arguments():
-    """コマンドライン引数を解析する"""
-    parser = argparse.ArgumentParser(description="PLLA Custom RL Agent Trainer")
-    parser.add_argument(
-        "config",
-        nargs="?",
-        default="config.yaml",
-        help="Path to the configuration file (default: config.yaml)"
-    )
-    parser.add_argument(
-        "--resume_from",
-        type=str,
-        default=None,
-        help="Base name of the checkpoint (e.g., 'checkpoint' or 'best_model.pth')"
-    )
-    parser.add_argument(
-        "--resume_step",
-        type=int,
-        default=None,
-        help="Step number of the checkpoint to resume from (e.g., 500)"
-    )
-    # --- ▲ここまで変更▲ ---
-    return parser.parse_args()
 
 if __name__ == "__main__":
     main()

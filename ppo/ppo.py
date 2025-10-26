@@ -31,8 +31,8 @@ class PPOAlgorithm(LearningAlgorithmBase):
         hp = self.settings.hyperparameters
         ppo_hp = hp.ppo
         action_space = self.settings.action_space
-        
-        # --- 1. モデルと専門家コンポーネントのインスタンス化 ---
+
+        # モデルと専門家コンポーネントのインスタンス化
         self.network = PPONetwork(
             state_size,
             action_space.continuous_action.get("size", 0),
@@ -55,7 +55,7 @@ class PPOAlgorithm(LearningAlgorithmBase):
             total_iters=trainer_settings.max_steps
         )
         
-        print("PPOAlgorithm (Hybrid Action Enabled) is initialized.")
+        print("PPOAlgorithm is initialized.")
 
     def decide_action(self, state: np.ndarray) -> ActionInfo:
         """
@@ -77,9 +77,6 @@ class PPOAlgorithm(LearningAlgorithmBase):
             # サンプリングした行動が現在の確率分布においてどの位の確率で選ばれたかを計算（対数確率）
             log_prob = continuous_dist.log_prob(continuous_action_sample).sum(axis=-1)
             # サンプリングした連続値アクションをクリッピング
-            # action_scale = self.settings.action_space.continuous_action.get("scale", 1.0)
-            # action_bias = self.settings.action_space.continuous_action.get("bias", 0.0)
-            # continuous_action_clipped = (torch.tanh(continuous_action_sample) * action_scale + action_bias).cpu().numpy()
             continuous_action_clipped = torch.clip(continuous_action_sample, -1.0, 1.0).cpu().numpy()
 
         return ActionInfo(
@@ -128,10 +125,7 @@ class PPOAlgorithm(LearningAlgorithmBase):
         # より安定したQ値の推定値を算出し、価値関数の学習を効率化する。
         returns = advantages + values
 
-        # アドバンテージの値は学習効率化のため正規化する
-        #advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
-        # --- 3. データセットの準備 ---
+        # データセットの準備
         # 必須のTensorをリストに追加
         dataset_tensors = TrainDataset(
             TrainData(
@@ -145,7 +139,7 @@ class PPOAlgorithm(LearningAlgorithmBase):
         )
         dataloader = DataLoader(dataset_tensors, batch_size=self.settings.hyperparameters.batch_size, shuffle=True)
         
-        # --- 4. 学習の実行 (ミニバッチ学習) ---
+        # 学習の実行 (ミニバッチ学習)
         loss_list = []
         epochs = self.settings.hyperparameters.ppo.epochs
         for _ in range(epochs):
@@ -174,7 +168,9 @@ class PPOAlgorithm(LearningAlgorithmBase):
         return {"total_loss": sum(loss_list) / len(loss_list)} if loss_list else {"total_loss": 0}
     
     def get_checkpoint_state(self) -> CheckpointData:
-        """チェックポイント保存用の状態を CheckpointData インスタンスとして返す"""
+        """
+        チェックポイント保存用の状態を CheckpointData インスタンスとして返す
+        """
         
         # CheckpointDataのコンストラクタにキーワード引数として渡す
         return CheckpointData(
@@ -184,7 +180,9 @@ class PPOAlgorithm(LearningAlgorithmBase):
         )
 
     def load_from_checkpoint(self, checkpoint_data: CheckpointData):
-        """CheckpointData インスタンスから状態を読み込む"""
+        """
+        CheckpointData インスタンスから状態を読み込む
+        """
         
         # .data 属性経由で辞書にアクセス
         self.network.load_state_dict(checkpoint_data.data['network_state_dict'])

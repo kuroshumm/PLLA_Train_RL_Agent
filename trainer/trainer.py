@@ -104,7 +104,6 @@ class Trainer:
                     # 現在の平均報酬が、これまでの最高記録を上回った場合
                     if avg_reward > self.best_avg_reward:
                         self.best_avg_reward = avg_reward
-                        print(f"\n✨ New Best Average Reward: {avg_reward:.2f} (at Episode {episode_count})! Saving best model... ✨")
 
                         # 保存する状態（CheckpointData）を取得
                         best_state: CheckpointData = self.algorithm.get_checkpoint_state()
@@ -121,7 +120,6 @@ class Trainer:
                 
                 episode_count += 1
                 episode_rewards.append(episode_reward)
-                #print(f"Episode {episode_count} finished. Reward: {episode_reward:.2f}")
 
         finally:
             self.env.close()
