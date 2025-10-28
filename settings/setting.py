@@ -8,8 +8,10 @@ from typing import Literal, Optional
 class ActionSpaceSettings(BaseModel):
     """行動空間に関する設定"""
     use_continuous: bool
+    use_discrete: bool
     # continuous_action はネストした辞書に対応
     continuous_action: dict[str, float] = Field(default_factory=dict)
+    discrete_action: dict[str, int] = Field(default_factory=dict)
 
 class ModelSettings(BaseModel):
     """ニューラルネットワークモデルの構造に関する設定"""

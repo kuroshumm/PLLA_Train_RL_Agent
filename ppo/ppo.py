@@ -21,8 +21,8 @@ from data.transition_data import TrainData, TrainDataset
 class PPOAlgorithm(LearningAlgorithmBase):
 
     """
-    PPOアルゴリズムのオーケストレータークラス。
-    連続値・離散値・ハイブリッドアクションに対応。
+    PPOアルゴリズムの実装
+    連続値・離散値の両方の行動空間に対応
     """
     def __init__(self, state_size: int, algorithm_settings: AlgorithmSettings, trainer_settings: TrainerSettings):
         
@@ -32,10 +32,14 @@ class PPOAlgorithm(LearningAlgorithmBase):
         ppo_hp = hp.ppo
         action_space = self.settings.action_space
 
+        self.continuous_action_size = action_space.continuous_action.get("size", 0) if action_space.use_continuous else 0
+        self.discrete_action_size = action_space.discrete_action.get("size", 0) if action_space.use_discrete else 0
+
         # モデルと専門家コンポーネントのインスタンス化
         self.network = PPONetwork(
             state_size,
-            action_space.continuous_action.get("size", 0),
+            self.continuous_action_size,
+            self.discrete_action_size,
             self.settings.model.hidden_size
         )
         self.reward_normalizer = RewardNormalizer()
@@ -60,30 +64,44 @@ class PPOAlgorithm(LearningAlgorithmBase):
     def decide_action(self, state: np.ndarray) -> ActionInfo:
         """
         現在の状態に基づき、行動を決定する。
-        (Source: ppo_agent.py の select_action メソッドを移植)
         """
         self.network.eval()
 
         with torch.no_grad():
             state_tensor = torch.as_tensor(state, dtype=torch.float32).unsqueeze(0)
             
-            continuous_dist = self.network.get_action_distribution(state_tensor)
+            continuous_dist, discrete_dist = self.network.get_action_distribution(state_tensor)
             value = self.network.get_value(state_tensor).item()
             
-            # --- アクションのサンプリングと情報収集 ---
-            # 連続値アクションの処理
-            continuous_action_sample = continuous_dist.sample()
-            raw_continuous_action = continuous_action_sample.cpu().numpy().flatten()
-            # サンプリングした行動が現在の確率分布においてどの位の確率で選ばれたかを計算（対数確率）
-            log_prob = continuous_dist.log_prob(continuous_action_sample).sum(axis=-1)
-            # サンプリングした連続値アクションをクリッピング
-            continuous_action_clipped = torch.clip(continuous_action_sample, -1.0, 1.0).cpu().numpy()
+            log_probs = []
+            continuous_action_clipped = None
+            raw_continuous_action = None
+            discrete_action_np = None
+
+            # 連続値アクションのサンプリング
+            if continuous_dist is not None:
+                continuous_action_sample = continuous_dist.sample()
+                raw_continuous_action = continuous_action_sample.cpu().numpy().flatten()
+                # サンプリングした行動が現在の確率分布においてどのくらいの確率で選ばれたか計算（対数確率）
+                log_probs.append(continuous_dist.log_prob(continuous_action_sample).sum(axis=-1))
+                # サンプリングした連続値アクションをクリップ
+                continuous_action_clipped = torch.clip(continuous_action_sample, -1.0, 1.0).cpu().numpy()
+            
+            # 離散値アクションのサンプリング
+            if discrete_dist is not None:
+                discrete_action = discrete_dist.sample()
+                discrete_action_np = discrete_action.cpu().numpy()
+                log_probs.append(discrete_dist.log_prob(discrete_action))
+
+            # 対数確率を合算することで、連続値・離散値アクションの両方を考慮
+            log_prob = torch.stack(log_probs, dim=-1).sum(dim=-1).item()
 
         return ActionInfo(
             continuous_action=continuous_action_clipped,
+            discrete_action=discrete_action_np,
             raw_continuous_action=raw_continuous_action,
             value=value,
-            log_prob=log_prob.item(),
+            log_prob=log_prob,
         )
 
     def train(self, buffer: Buffer) -> Dict[str, float]:
@@ -97,7 +115,7 @@ class PPOAlgorithm(LearningAlgorithmBase):
         if not batch_tensors:
             return {}
         
-        # データをテンソルに変換
+        # データ取得
         states = batch_tensors.states
         values = batch_tensors.values
         rewards = batch_tensors.rewards
@@ -105,6 +123,7 @@ class PPOAlgorithm(LearningAlgorithmBase):
         next_states = batch_tensors.next_states
         old_log_probs = batch_tensors.log_probs
         raw_continuous_actions = batch_tensors.raw_continuous_actions
+        discrete_actions = batch_tensors.discrete_actions
 
         # GAE計算前に報酬を正規化
         #self.reward_normalizer.update(rewards)
@@ -134,11 +153,12 @@ class PPOAlgorithm(LearningAlgorithmBase):
                 advantages=advantages,
                 returns=returns,
                 values=values,
-                actions=raw_continuous_actions,
+                continuous_actions=raw_continuous_actions,
+                discrete_actions=discrete_actions,
             )
         )
         dataloader = DataLoader(dataset_tensors, batch_size=self.settings.hyperparameters.batch_size, shuffle=True)
-        
+
         # 学習の実行 (ミニバッチ学習)
         loss_list = []
         epochs = self.settings.hyperparameters.ppo.epochs
@@ -160,7 +180,7 @@ class PPOAlgorithm(LearningAlgorithmBase):
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.settings.hyperparameters.ppo.max_grad_norm)
                 self.optimizer.step()
-
+                
         # スケジューラのステップを更新
         if self.scheduler is not None:
             self.scheduler.step()
@@ -172,7 +192,6 @@ class PPOAlgorithm(LearningAlgorithmBase):
         チェックポイント保存用の状態を CheckpointData インスタンスとして返す
         """
         
-        # CheckpointDataのコンストラクタにキーワード引数として渡す
         return CheckpointData(
             network_state_dict=self.network.state_dict(),
             optimizer_state_dict=self.optimizer.state_dict(),
@@ -184,7 +203,6 @@ class PPOAlgorithm(LearningAlgorithmBase):
         CheckpointData インスタンスから状態を読み込む
         """
         
-        # .data 属性経由で辞書にアクセス
         self.network.load_state_dict(checkpoint_data.data['network_state_dict'])
         self.optimizer.load_state_dict(checkpoint_data.data['optimizer_state_dict'])
         self.scheduler.load_state_dict(checkpoint_data.data['scheduler_state_dict'])

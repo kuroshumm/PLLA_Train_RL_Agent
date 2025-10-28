@@ -14,6 +14,7 @@ class TransitionData(NamedTuple):
     values: torch.Tensor
     log_probs: torch.Tensor
     raw_continuous_actions: torch.Tensor
+    discrete_actions: torch.Tensor
 
 class TrainData(NamedTuple):
     """
@@ -24,7 +25,8 @@ class TrainData(NamedTuple):
     advantages: torch.Tensor
     returns: torch.Tensor
     values: torch.Tensor
-    actions: torch.Tensor
+    continuous_actions: Optional[torch.Tensor]
+    discrete_actions: Optional[torch.Tensor]
 
 class TrainDataset(Dataset):
     """
@@ -43,5 +45,6 @@ class TrainDataset(Dataset):
             advantages=self.trainData.advantages[idx],
             returns=self.trainData.returns[idx],
             values=self.trainData.values[idx],
-            actions=self.trainData.actions[idx],
+            continuous_actions=self.trainData.continuous_actions[idx],
+            discrete_actions=self.trainData.discrete_actions[idx],
         )

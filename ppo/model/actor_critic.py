@@ -2,10 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class ContinuousActorNetwork(nn.Module):
-    """連続値を出力するActorネットワーク"""
-    def __init__(self, state_size, continuous_action_size, hidden_size=128):
-        super(ContinuousActorNetwork, self).__init__()
+class ActorNetwork(nn.Module):
+    """
+    連続値と離散値の両方を出力するActorネットワーク
+    """
+    def __init__(self, state_size, continuous_action_size, discrete_action_size, hidden_size=128):
+        super(ActorNetwork, self).__init__()
         
         # 隠れ層の定義
         self.hidden_layers = nn.Sequential(
@@ -23,29 +25,35 @@ class ContinuousActorNetwork(nn.Module):
             # この値自体が統計的な標準偏差ではなく、探索の幅を決定するために学習される。
             # 指数（exp）を取ることで、標準偏差が常に正の値になることを保証する。
             self.action_log_std = nn.Parameter(torch.zeros(continuous_action_size))
-
             nn.init.uniform_(self.continuous_mean.weight, -0.01, 0.01)
             nn.init.constant_(self.continuous_mean.bias, 0)
+
+        # 離散値アクション用の出力層
+        if discrete_action_size > 0:
+            self.discrete_logits = nn.Linear(hidden_size, discrete_action_size)
+            nn.init.uniform_(self.discrete_logits.weight, -0.01, 0.01)
+            nn.init.constant_(self.discrete_logits.bias, 0)
 
     def _initialize_weights(self):
         # 隠れ層の重みをKaiming初期化、バイアスを0で初期化
         for module in self.hidden_layers:
             if isinstance(module, nn.Linear):
-                # Kaiming UniformをReLUと組み合わせて使用
                 nn.init.kaiming_uniform_(module.weight, nonlinearity='relu')
-                # バイアスは0で初期化
                 nn.init.constant_(module.bias, 0)
 
-    def forward(self, x, continuous_action_size):
+    def forward(self, x, continuous_action_size, discrete_action_size):
         x = self.hidden_layers(x)
 
-        continuous_mean, continuous_std = None, None
+        continuous_mean, continuous_std, discrete_logits = None, None, None
 
         if continuous_action_size > 0:
             continuous_mean = self.continuous_mean(x)
             continuous_std = torch.exp(self.action_log_std.expand_as(continuous_mean))
         
-        return continuous_mean, continuous_std
+        if discrete_action_size > 0:
+            discrete_logits = self.discrete_logits(x)
+        
+        return continuous_mean, continuous_std, discrete_logits
 
 class CriticNetwork(nn.Module):
     """Critic専用ネットワーク（価値関数）"""
