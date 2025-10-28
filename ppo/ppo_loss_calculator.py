@@ -25,7 +25,8 @@ class PPOLossCalculator:
         # ネットワークから現在の予測値を取得
         log_probs, entropy, values = network.evaluate_actions(
             batch.states,
-            batch.actions,
+            batch.continuous_actions,
+            batch.discrete_actions
         )
         values = values.squeeze()
 

@@ -7,7 +7,7 @@ from settings.setting import TrainerSettings
 from base.learning_algorithm_base import LearningAlgorithmBase
 from data.buffer import Buffer
 from data.transition_data import TransitionData
-from env.unity_env_wrapper import UnityEnvWrapper
+from enviroment.unity_env_wrapper import UnityEnvWrapper
 # from checkpoint_manager import CheckpointManager # 将来的に実装
 
 import pdb
@@ -55,7 +55,7 @@ class Trainer:
                     # --- 変更点: 実際の環境ステップ実行 ---
                     next_state, reward, done = self.env.step(
                         action_info.continuous_action,
-                        None
+                        action_info.discrete_action
                     )
 
                     transition_data = TransitionData(
@@ -65,7 +65,8 @@ class Trainer:
                         next_states=next_state,
                         values=action_info.value,
                         log_probs=action_info.log_prob,
-                        raw_continuous_actions=action_info.raw_continuous_action
+                        raw_continuous_actions=action_info.raw_continuous_action,
+                        discrete_actions=action_info.discrete_action
                     )
 
                     # -----------------------------------

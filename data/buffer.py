@@ -20,6 +20,7 @@ class Buffer:
         self.value: List[float] = []
         self.log_prob: List[float] = []
         self.raw_continuous_action: List[np.ndarray] = []
+        self.discrete_action: List[np.ndarray] = []
 
     def store(self, transition_data: TransitionData):
         
@@ -34,6 +35,7 @@ class Buffer:
         self.value.append(transition_data.values)
         self.log_prob.append(transition_data.log_probs)
         self.raw_continuous_action.append(transition_data.raw_continuous_actions)
+        self.discrete_action.append(transition_data.discrete_actions)
 
         self.count = len(self.state)
 
@@ -45,22 +47,35 @@ class Buffer:
         self.value.pop(0)
         self.log_prob.pop(0)
         self.raw_continuous_action.pop(0)
+        self.discrete_action.pop(0)
 
     def get_tensor_data(self) -> TransitionData:
         """
         蓄積された全Trajectoryを、学習で利用可能なTensorの辞書に変換して返す。
         """
         if not self.state:
-            return {}
+            return None
         
-        states = torch.tensor(self.state, dtype=torch.float32)
-        rewards = torch.tensor(self.reward, dtype=torch.float32)
-        dones = torch.tensor(self.done, dtype=torch.float32)
-        next_states = torch.tensor(self.next_state, dtype=torch.float32)
-        old_log_probs = torch.tensor(self.log_prob, dtype=torch.float32)
-        values = torch.tensor(self.value, dtype=torch.float32)
-        next_states = torch.tensor(self.next_state, dtype=torch.float32)
-        raw_continuous_actions = torch.tensor(self.raw_continuous_action, dtype=torch.float32)
+        states = torch.tensor(np.array(self.state), dtype=torch.float32)
+        rewards = torch.tensor(np.array(self.reward), dtype=torch.float32)
+        dones = torch.tensor(np.array(self.done), dtype=torch.float32)
+        next_states = torch.tensor(np.array(self.next_state), dtype=torch.float32)
+        old_log_probs = torch.tensor(np.array(self.log_prob), dtype=torch.float32)
+        values = torch.tensor(np.array(self.value), dtype=torch.float32)
+
+        # 連続値アクションが存在する場合の処理
+        if self.raw_continuous_action and self.raw_continuous_action[0] is not None:
+            continuous_actions_np = np.vstack(self.raw_continuous_action)
+        else:
+            continuous_actions_np = np.empty((len(self.state), 0), dtype=np.float32)
+        raw_continuous_actions = torch.tensor(continuous_actions_np, dtype=torch.float32)
+
+        # 離散アクションが存在する場合の処理
+        if self.discrete_action and self.discrete_action[0] is not None:
+            discrete_actions_np = np.vstack(self.discrete_action)
+        else:
+            discrete_actions_np = np.empty((len(self.state), 0), dtype=np.int64)
+        discrete_actions = torch.tensor(discrete_actions_np, dtype=torch.int64)
 
         transition_data = TransitionData(
             states=states,
@@ -69,7 +84,8 @@ class Buffer:
             next_states=next_states,
             values=values,
             log_probs=old_log_probs,
-            raw_continuous_actions=raw_continuous_actions
+            raw_continuous_actions=raw_continuous_actions,
+            discrete_actions=discrete_actions
         )
 
         return transition_data
@@ -83,6 +99,7 @@ class Buffer:
         self.value.clear()
         self.log_prob.clear()
         self.raw_continuous_action.clear()
+        self.discrete_action.clear()
         self.count = 0
 
     def is_ready(self, min_size: int) -> bool:
